@@ -26,7 +26,6 @@ class LocationService: NSObject, ObservableObject, CLLocationManagerDelegate {
         super.init()
         manager.delegate = self
         
-        // 🔥 Viktiga inställningar
         manager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
         manager.distanceFilter = kCLDistanceFilterNone
     }
@@ -49,11 +48,10 @@ class LocationService: NSObject, ObservableObject, CLLocationManagerDelegate {
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let newLocation = locations.last else { return }
         
-        print("📍 Location:", newLocation.coordinate)
+        print(" Location:", newLocation.coordinate)
         
-        // ❌ Ignorera dålig GPS
         if newLocation.horizontalAccuracy < 0 || newLocation.horizontalAccuracy > 20 {
-            print("⚠️ Bad accuracy:", newLocation.horizontalAccuracy)
+            print(" Bad accuracy:", newLocation.horizontalAccuracy)
             return
         }
         
@@ -69,7 +67,6 @@ class LocationService: NSObject, ObservableObject, CLLocationManagerDelegate {
         let delta = newLocation.distance(from: last)
         let time = newLocation.timestamp.timeIntervalSince(last.timestamp)
         
-        // ❌ skydda mot konstiga timestamps
         if time <= 0 {
             lastLocation = newLocation
             return
@@ -77,37 +74,33 @@ class LocationService: NSObject, ObservableObject, CLLocationManagerDelegate {
         
         let speed = delta / time
         
-        print("📏 Raw delta:", delta)
-        print("⏱ Time:", time)
-        print("🏃 Raw speed:", speed)
+        print(" Raw delta:", delta)
+        print(" Time:", time)
+        print(" Raw speed:", speed)
         
-        // ❌ FILTER 1: för små rörelser (GPS brus)
         if delta < 2 {
-            print("⚠️ Ignored small movement")
+            print(" Ignored small movement")
             lastLocation = newLocation
             return
         }
         
-        // ❌ FILTER 2: för stora hopp (GPS glitch)
         if delta > 20 {
-            print("⚠️ Ignored big jump")
+            print(" Ignored big jump")
             lastLocation = newLocation
             return
         }
         
-        // ❌ FILTER 3: orimlig hastighet
         if speed < 0.5 || speed > 6 {
-            print("⚠️ Ignored unrealistic speed:", speed)
+            print(" Ignored unrealistic speed:", speed)
             lastLocation = newLocation
             return
         }
         
-        // ✅ VALID DATA
         totalDistance += delta
         updateSpeed(speed)
         
-        print("✅ Distance:", totalDistance)
-        print("✅ Speed:", speed)
+        print(" Distance:", totalDistance)
+        print(" Speed:", speed)
         
         lastLocation = newLocation
         pathCoordinates.append(newLocation.coordinate)
@@ -117,7 +110,6 @@ class LocationService: NSObject, ObservableObject, CLLocationManagerDelegate {
     private func updateSpeed(_ speed: Double) {
         currentSpeed = speed
         
-        // ❗ skydda maxSpeed från spikes
         if speed < 6 {
             maxSpeed = max(maxSpeed, speed)
         }

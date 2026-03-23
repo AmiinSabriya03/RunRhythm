@@ -63,7 +63,7 @@ class RunSessionViewModel: ObservableObject {
         elapsedTime = 0
         distance = 0
         avgSpeed = 0
-        cadenceSamples = [] // ✅ reset
+        cadenceSamples = []
         lastSpokenMinute = 0
         
         locationService.start()
@@ -118,7 +118,6 @@ class RunSessionViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .assign(to: &$currentSpeed)
         
-        // ✅ FIX: samla cadence samples
         motionService.$currentCadence
             .receive(on: DispatchQueue.main)
             .sink { [weak self] value in
@@ -183,7 +182,6 @@ class RunSessionViewModel: ObservableObject {
         
         let startDate = Date().addingTimeInterval(-elapsedTime)
         
-        // ✅ räkna riktig snitt cadence
         let avgCadence = cadenceSamples.isEmpty
             ? 0
             : cadenceSamples.reduce(0, +) / Double(cadenceSamples.count)
@@ -194,13 +192,13 @@ class RunSessionViewModel: ObservableObject {
         newRun.distance = distance
         newRun.duration = elapsedTime
         newRun.avgSpeed = avgSpeed
-        newRun.avgCadence = avgCadence // ✅ FIX
+        newRun.avgCadence = avgCadence
         
         do {
             try context.save()
-            print("✅ Run saved to Core Data")
+            print(" Run saved to Core Data")
         } catch {
-            print("❌ Failed to save run:", error)
+            print(" Failed to save run:", error)
         }
         
         healthKitService.saveWorkout(

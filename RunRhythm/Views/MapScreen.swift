@@ -16,7 +16,6 @@ struct MapScreen: View {
         NavigationStack {
             ZStack {
                 
-                // ✅ FIX: använd direkt, ingen local let
                 RouteMapView(coordinates: locationService.pathCoordinates)
                     .ignoresSafeArea()
 

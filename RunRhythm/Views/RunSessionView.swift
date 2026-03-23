@@ -103,9 +103,7 @@ struct RunSessionView: View {
             }
         }
     }
-    
-    // ✅ FLYTTADE UT HIT
-    
+        
     private func statBlock(title: String, value: String) -> some View {
         VStack {
             Text(title)

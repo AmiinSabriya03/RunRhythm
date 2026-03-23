@@ -28,7 +28,6 @@ struct ContentView: View {
         self.locationService = locationService
         self.healthKitService = healthKitService
 
-        // ⚠️ TEMP context (fix för init)
         let tempContext = PersistenceController.shared.container.viewContext
 
         _runSessionViewModel = StateObject(
