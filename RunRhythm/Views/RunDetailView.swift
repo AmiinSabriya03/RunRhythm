@@ -5,39 +5,44 @@
 //  Created by Amiin Sabriya on 2026-01-08.
 //
 
+
+
 import SwiftUI
 import MapKit
 
 struct RunDetailView: View {
+
     let run: Run
 
     var body: some View {
-        let coords = coordinates(from: run)
-
         ScrollView {
-            VStack(spacing: 16) {
-                if !coords.isEmpty {
-                    RouteMapView(coordinates: coords)
-                        .frame(height: 250)
-                        .cornerRadius(12)
-                        .padding(.bottom)
-                }
-
+            VStack(spacing: 20) {
                 Text(dateString(run.startDate))
                     .font(.title3)
 
                 Text(formatDuration(run.duration))
                     .font(.largeTitle.monospacedDigit())
 
-                HStack {
-                    statBlock("Distans", String(format: "%.2f km", run.distance / 1000))
-                    statBlock("Snittfart", String(format: "%.1f km/h", run.avgSpeed * 3.6))
-                }
+                VStack(spacing: 16) {
+                    HStack {
+                        statBlock(
+                            "Distans",
+                            String(format: "%.2f km", run.distance / 1000)
+                        )
+                        statBlock(
+                            "Snittfart",
+                            String(format: "%.1f km/h", run.avgSpeed * 3.6)
+                        )
+                    }
 
-                HStack {
-                    statBlock("Maxfart", String(format: "%.1f km/h", run.maxSpeed * 3.6))
-                    statBlock("Cadence", String(format: "%.0f spm", run.avgCadence))
+                    HStack {
+                        stat("Cadence", "\(Int(run.avgCadence)) spm")
+                    }
                 }
+                .padding()
+                .frame(maxWidth: .infinity)
+                .background(.ultraThinMaterial)
+                .cornerRadius(20)
 
                 Spacer()
             }
@@ -56,6 +61,20 @@ struct RunDetailView: View {
                 .foregroundColor(.secondary)
             Text(value)
                 .font(.headline)
+                .monospacedDigit()
+        }
+        .frame(maxWidth: .infinity)
+    }
+    
+    private func stat(_ title: String, _ value: String) -> some View {
+        VStack(spacing: 4) {
+            Text(title)
+                .font(.caption)
+                .foregroundColor(.secondary)
+            
+            Text(value)
+                .font(.headline)
+                .monospacedDigit()
         }
         .frame(maxWidth: .infinity)
     }
@@ -75,6 +94,7 @@ struct RunDetailView: View {
         return String(format: "%02d:%02d", min, sec)
     }
 
+    // Behövs ev. fortfarande för andra delar av appen
     private func coordinates(from run: Run) -> [CLLocationCoordinate2D] {
         guard
             let route = run.route,
@@ -90,4 +110,5 @@ struct RunDetailView: View {
         }
     }
 }
+
 

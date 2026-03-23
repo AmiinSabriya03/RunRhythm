@@ -4,9 +4,8 @@
 //  Created by Amiin Sabriya on 2026-01-07.
 //
 
-import Combine
 import Foundation
-import CoreLocation
+import Combine
 import CoreData
 
 enum RunState {
@@ -15,222 +14,199 @@ enum RunState {
     case paused
 }
 
-final class RunSessionViewModel: ObservableObject {
-
-    // Publika värden som UI visar
-    @Published private(set) var elapsedTime: TimeInterval = 0
-
-    @Published private(set) var distance: Double = 0          // meter
-    @Published private(set) var currentSpeed: Double = 0      // m/s
-    @Published private(set) var avgSpeed: Double = 0          // m/s
-    @Published private(set) var maxSpeed: Double = 0          // m/s
-
-    @Published private(set) var currentCadence: Double = 0    // steps/min
-    @Published private(set) var avgCadence: Double = 0
-    @Published private(set) var maxCadence: Double = 0
-    @Published private(set) var isCadenceInTargetRange: Bool = true
-
-    @Published private(set) var state: RunState = .idle
-
-    private let motionService: MotionService
-    private let locationService: LocationService
-    private let healthKitService: HealthKitService
-    private let persistence: PersistenceController
-    private let analyzer = RunAnalyzer()
-    private let speechService: SpeechService
+class RunSessionViewModel: ObservableObject {
     
-    private let cadenceFeedbackInterval: TimeInterval = 60
-    private var lastCadenceFeedbackTime: Date?
-
-
-    private var timer: Timer?
-    private var startDate: Date?
-
+    // MARK: - Services
+    private let locationService: LocationService
+    private let motionService: MotionService
+    private let healthKitService: HealthKitService
+    private let speechService = SpeechService()
+    private let context: NSManagedObjectContext
+    
     private var cancellables = Set<AnyCancellable>()
-
+    
+    // MARK: - Data storage (NEW)
+    private var cadenceSamples: [Double] = []
+    
+    // MARK: - Published
+    @Published var distance: Double = 0
+    @Published var currentSpeed: Double = 0
+    @Published var avgSpeed: Double = 0
+    @Published var cadence: Double = 0
+    @Published var elapsedTime: TimeInterval = 0
+    @Published var state: RunState = .idle
+    
+    private var timer: Timer?
+    private var lastSpokenMinute: Int = 0
+    
     // MARK: - Init
-
-    init(motionService: MotionService,
-         locationService: LocationService,
-         healthKitService: HealthKitService,
-         persistence: PersistenceController = .shared,
-         speechService: SpeechService = SpeechService()) {
-
+    init(
+        motionService: MotionService,
+        locationService: LocationService,
+        healthKitService: HealthKitService,
+        context: NSManagedObjectContext
+    ) {
         self.motionService = motionService
         self.locationService = locationService
         self.healthKitService = healthKitService
-        self.persistence = persistence
-        self.speechService = speechService
-
-        // Koppla @Published från services till vår egen state
-        motionService.$currentCadence.assign(to: &$currentCadence)
-        motionService.$avgCadence.assign(to: &$avgCadence)
-        motionService.$maxCadence.assign(to: &$maxCadence)
-        motionService.$isCadenceInTargetRange.assign(to: &$isCadenceInTargetRange)
-
-        locationService.$totalDistance.assign(to: &$distance)
-        locationService.$currentSpeed.assign(to: &$currentSpeed)
-        locationService.$maxSpeed.assign(to: &$maxSpeed)
-
-        observeCadenceChanges()
+        self.context = context
+        
+        bindServices()
     }
-
-    // Reagera på ändringar i cadence‑status (ersätter färgfeedback)
-    private func observeCadenceChanges() {
-        $isCadenceInTargetRange
-            .removeDuplicates()
-            .sink { [weak self] inRange in
-                guard let self else { return }
-
-                // Bara prata när passet är igång
-                guard self.state == .running else { return }
-
-                let now = Date()
-                if let last = self.lastCadenceFeedbackTime,
-                   now.timeIntervalSince(last) < self.cadenceFeedbackInterval {
-                    return
-                }
-                self.lastCadenceFeedbackTime = now
-
-                if inRange {
-                    self.speechService.speak("cadence is good")
-                } else {
-                    self.speechService.speak("cadence is bad")
-                }
-            }
-            .store(in: &cancellables)
-    }
-
-
-
-    // MARK: - Kontroll av pass
-
+    
+    // MARK: - Start Run
     func startRun() {
-        guard state == .idle else { return }
-
+        guard state != .running else { return }
+        
+        state = .running
+        
         elapsedTime = 0
         distance = 0
         avgSpeed = 0
-        maxSpeed = 0
-
-        motionService.resetForNewRun()
-        locationService.resetForNewRun()
-
-        startDate = Date()
-        state = .running
-
-        motionService.start()
+        cadenceSamples = [] // ✅ reset
+        lastSpokenMinute = 0
+        
         locationService.start()
+        motionService.start()
+        
         startTimer()
     }
-
+    
+    // MARK: - Pause
     func pauseRun() {
         guard state == .running else { return }
+        
         state = .paused
-        timer?.invalidate()
-        motionService.stop()
+        
         locationService.stop()
+        motionService.stop()
+        stopTimer()
     }
-
+    
+    // MARK: - Resume
     func resumeRun() {
         guard state == .paused else { return }
-        // fortsätt från där timern var
-        startDate = Date().addingTimeInterval(-elapsedTime)
+        
         state = .running
-
-        motionService.start()
+        
         locationService.start()
+        motionService.start()
         startTimer()
     }
     
-    
-
-
+    // MARK: - Stop
     func stopRun() {
-        guard state == .running || state == .paused else { return }
-
-        timer?.invalidate()
-        motionService.stop()
-        locationService.stop()
-
-        guard let start = startDate else { return }
-        let duration = Date().timeIntervalSince(start)
-
+        guard state != .idle else { return }
+        
         state = .idle
-
-        // resten av din befintliga stopRun-kod:
-        let distanceSnapshot = distance
-        let cadenceSamples = motionService.exportSamples()
-        let speedSamples = locationService.exportSamples()
-        let coords = locationService.pathCoordinates
-
-
-        DispatchQueue.global(qos: .userInitiated).async {
-            let summary = self.analyzer.analyze(
-                duration: duration,
-                distance: distanceSnapshot,
-                cadenceSamples: cadenceSamples,
-                speedSamples: speedSamples,
-                targetCadenceRange: 160...180
-            )
-
-            self.healthKitService.saveWorkout(from: summary) { uuid in
-                let context = self.persistence.container.viewContext
-                context.perform {
-                    let run = Run(context: context)
-                    run.id = UUID()
-                    run.startDate = Date().addingTimeInterval(-summary.duration)
-                    run.endDate = Date()
-                    run.duration = summary.duration
-                    run.distance = summary.distance
-                    run.avgSpeed = summary.avgSpeed
-                    run.maxSpeed = summary.maxSpeed
-                    run.avgCadence = summary.avgCadence
-                    run.maxCadence = summary.maxCadence
-                    run.longestSteadyPaceDuration = summary.longestSteadyPaceDuration
-                    run.isCadenceGood = summary.isCadenceGood
-                    run.hkWorkoutUUID = uuid ?? UUID()
-
-                    let route = Route(context: context)
-                    route.id = UUID()
-                    route.coordinatesData = self.encodeCoordinates(coords)
-                    run.route = route
-                    route.parentRun = run
-
-                    do {
-                        try context.save()
-                    } catch {
-                        print("Save run error: \(error.localizedDescription)")
-                    }
-                }
+        
+        locationService.stop()
+        motionService.stop()
+        stopTimer()
+        
+        saveWorkout()
+    }
+    
+    // MARK: - Bind Services (UPDATED)
+    private func bindServices() {
+        
+        locationService.$totalDistance
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$distance)
+        
+        locationService.$currentSpeed
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$currentSpeed)
+        
+        // ✅ FIX: samla cadence samples
+        motionService.$currentCadence
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] value in
+                self?.cadence = value
+                self?.cadenceSamples.append(value)
             }
-        }
+            .store(in: &cancellables)
     }
-
-    // MARK: - Helpers
-
-    private func updateAvgSpeed() {
-        guard elapsedTime > 0 else {
-            avgSpeed = 0
-            return
-        }
-        avgSpeed = distance / elapsedTime
-    }
-
-    private func encodeCoordinates(_ coordinates: [CLLocationCoordinate2D]) -> Data? {
-        let simple = coordinates.map { ["lat": $0.latitude, "lon": $0.longitude] }
-        return try? JSONEncoder().encode(simple)
-    }
-
+    
+    // MARK: - Timer
     private func startTimer() {
-        timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            guard let self, let start = self.startDate else { return }
-            Task { @MainActor in
-                self.elapsedTime = Date().timeIntervalSince(start)
-                self.updateAvgSpeed()
+        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
+            
+            self.elapsedTime += 1
+            self.updateAvgSpeed()
+            
+            let currentMinute = Int(self.elapsedTime) / 60
+            
+            if currentMinute > self.lastSpokenMinute {
+                self.lastSpokenMinute = currentMinute
+                self.speakCadence()
             }
         }
+    }
+    
+    private func stopTimer() {
+        timer?.invalidate()
+        timer = nil
+    }
+    
+    // MARK: - Avg Speed
+    private func updateAvgSpeed() {
+        if elapsedTime > 0 {
+            avgSpeed = distance / elapsedTime
+        }
+    }
+    
+    // MARK: - Pace
+    var pace: Double {
+        guard currentSpeed > 0 else { return 0 }
+        return (1000 / currentSpeed) / 60
+    }
+    
+    // MARK: - TTS
+    private func speakCadence() {
+        let message: String
+        
+        switch cadence {
+        case ..<150:
+            message = "Bad Cadence!"
+        case 150...180:
+            message = "Good Cadence!"
+        default:
+            message = "Slow Cadence a little!"
+        }
+        
+        speechService.speak(message)
+    }
+    
+    // MARK: - Save Workout (FIXED)
+    private func saveWorkout() {
+        
+        let startDate = Date().addingTimeInterval(-elapsedTime)
+        
+        // ✅ räkna riktig snitt cadence
+        let avgCadence = cadenceSamples.isEmpty
+            ? 0
+            : cadenceSamples.reduce(0, +) / Double(cadenceSamples.count)
+        
+        let newRun = Run(context: context)
+        newRun.id = UUID()
+        newRun.startDate = startDate
+        newRun.distance = distance
+        newRun.duration = elapsedTime
+        newRun.avgSpeed = avgSpeed
+        newRun.avgCadence = avgCadence // ✅ FIX
+        
+        do {
+            try context.save()
+            print("✅ Run saved to Core Data")
+        } catch {
+            print("❌ Failed to save run:", error)
+        }
+        
+        healthKitService.saveWorkout(
+            distance: distance,
+            startDate: startDate,
+            endDate: Date()
+        )
     }
 }
-

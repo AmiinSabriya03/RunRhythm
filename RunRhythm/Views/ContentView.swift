@@ -5,33 +5,45 @@
 //  Created by Amiin Sabriya on 2026-01-01.
 //
 
+
 import SwiftUI
+import CoreData
 
 struct ContentView: View {
+
     @Environment(\.managedObjectContext) private var context
-    let motionService: MotionService
-    let locationService: LocationService
-    let healthKitService: HealthKitService
+
+    private let motionService: MotionService
+    private let locationService: LocationService
+    private let healthKitService: HealthKitService
 
     @StateObject private var runSessionViewModel: RunSessionViewModel
 
-    init(motionService: MotionService,
-         locationService: LocationService,
-         healthKitService: HealthKitService) {
+    init(
+        motionService: MotionService,
+        locationService: LocationService,
+        healthKitService: HealthKitService
+    ) {
         self.motionService = motionService
         self.locationService = locationService
         self.healthKitService = healthKitService
+
+        // ⚠️ TEMP context (fix för init)
+        let tempContext = PersistenceController.shared.container.viewContext
+
         _runSessionViewModel = StateObject(
             wrappedValue: RunSessionViewModel(
                 motionService: motionService,
                 locationService: locationService,
-                healthKitService: healthKitService
+                healthKitService: healthKitService,
+                context: tempContext
             )
         )
     }
 
     var body: some View {
         TabView {
+            
             RunSessionView(viewModel: runSessionViewModel)
                 .tabItem {
                     Label("Pass", systemImage: "figure.run")
@@ -46,6 +58,11 @@ struct ContentView: View {
                 .tabItem {
                     Label("Karta", systemImage: "map")
                 }
+        }
+        .tint(.green)
+        .onAppear {
+            healthKitService.requestAuthorization()
+            locationService.requestAuthorization()
         }
     }
 }

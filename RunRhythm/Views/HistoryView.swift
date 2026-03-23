@@ -9,6 +9,7 @@ import SwiftUI
 import CoreData
 
 struct HistoryView: View {
+
     @Environment(\.managedObjectContext) private var context
 
     @FetchRequest(
@@ -18,32 +19,71 @@ struct HistoryView: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                ForEach(runs) { run in
-                    NavigationLink {
-                        RunDetailView(run: run)   // stub, fix i steg 2
-                    } label: {
-                        row(for: run)
+            if runs.isEmpty {
+                VStack(spacing: 12) {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.system(size: 40))
+                        .foregroundColor(.secondary)
+                    Text("Inga pass ännu")
+                        .font(.headline)
+                    Text("Dina sparade löppass visas här när du har genomfört några.")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color(.systemGroupedBackground))
+            } else {
+                List {
+                    ForEach(runs) { run in
+                        NavigationLink {
+                            RunDetailView(run: run)
+                        } label: {
+                            row(for: run)
+                        }
+                        .listRowBackground(Color.clear)
                     }
                 }
+                .listStyle(.insetGrouped)
+                .background(Color(.systemGroupedBackground))
             }
-            .navigationTitle("Historik")
         }
+        .navigationTitle("Historik")
     }
 
     private func row(for run: Run) -> some View {
-        VStack(alignment: .leading) {
+        VStack(alignment: .leading, spacing: 8) {
             Text(dateString(run.startDate))
                 .font(.headline)
 
             HStack {
-                Text(String(format: "%.2f km", run.distance / 1000))
+                Label(
+                    String(format: "%.2f km", run.distance / 1000),
+                    systemImage: "figure.run"
+                )
+                .font(.subheadline)
+
                 Spacer()
+
                 Text(formatDuration(run.duration))
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
             }
-            .font(.subheadline)
-            .foregroundColor(.secondary)
+
+            HStack(spacing: 16) {
+                Text(String(format: "Snitt: %.1f km/h", run.avgSpeed * 3.6))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                Text(String(format: "Cadence: %.0f spm", run.avgCadence))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
         }
+        .padding(12)
+        .background(.ultraThinMaterial)
+        .cornerRadius(16)
     }
 
     private func dateString(_ date: Date?) -> String {
@@ -61,4 +101,5 @@ struct HistoryView: View {
         return String(format: "%02d:%02d", min, sec)
     }
 }
+
 

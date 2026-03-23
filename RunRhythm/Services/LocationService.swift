@@ -5,110 +5,126 @@
 //  Created by Amiin Sabriya on 2026-01-04.
 //
 
-import Combine
+
 import Foundation
 import CoreLocation
+import Combine
 
-final class LocationService: NSObject, ObservableObject {
-
+class LocationService: NSObject, ObservableObject, CLLocationManagerDelegate {
+    
     private let manager = CLLocationManager()
-
-    @Published private(set) var currentLocation: CLLocation?
-    @Published private(set) var pathCoordinates: [CLLocationCoordinate2D] = []
-    @Published private(set) var totalDistance: Double = 0        // meter
-    @Published private(set) var currentSpeed: Double = 0         // m/s
-    @Published private(set) var maxSpeed: Double = 0             // m/s
-
-    private var speedSamples: [SpeedSample] = []
-
+    
+    // MARK: - Published data
+    @Published var totalDistance: Double = 0
+    @Published var currentSpeed: Double = 0
+    @Published var maxSpeed: Double = 0
+    @Published var pathCoordinates: [CLLocationCoordinate2D] = []
+    
+    private var lastLocation: CLLocation?
+    
     override init() {
         super.init()
         manager.delegate = self
-        manager.desiredAccuracy = kCLLocationAccuracyBest
+        
+        // 🔥 Viktiga inställningar
+        manager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
         manager.distanceFilter = kCLDistanceFilterNone
     }
-
-    // Be användaren om GPS-tillstånd
+    
+    // MARK: - Permissions
     func requestAuthorization() {
         manager.requestWhenInUseAuthorization()
     }
-
-    // Starta positionsuppdateringar
+    
+    // MARK: - Start / Stop
     func start() {
         manager.startUpdatingLocation()
     }
-
-    // Stoppa positionsuppdateringar
+    
     func stop() {
         manager.stopUpdatingLocation()
     }
-
-    // Nollställ inför nytt pass
-    func resetForNewRun() {
-        currentLocation = nil
-        pathCoordinates.removeAll()
-        totalDistance = 0
-        currentSpeed = 0
-        maxSpeed = 0
-        speedSamples.removeAll()
+    
+    // MARK: - Location Updates
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        guard let newLocation = locations.last else { return }
+        
+        print("📍 Location:", newLocation.coordinate)
+        
+        // ❌ Ignorera dålig GPS
+        if newLocation.horizontalAccuracy < 0 || newLocation.horizontalAccuracy > 20 {
+            print("⚠️ Bad accuracy:", newLocation.horizontalAccuracy)
+            return
+        }
+        
+        // Första location → sätt bara
+        if lastLocation == nil {
+            lastLocation = newLocation
+            pathCoordinates.append(newLocation.coordinate)
+            return
+        }
+        
+        guard let last = lastLocation else { return }
+        
+        let delta = newLocation.distance(from: last)
+        let time = newLocation.timestamp.timeIntervalSince(last.timestamp)
+        
+        // ❌ skydda mot konstiga timestamps
+        if time <= 0 {
+            lastLocation = newLocation
+            return
+        }
+        
+        let speed = delta / time
+        
+        print("📏 Raw delta:", delta)
+        print("⏱ Time:", time)
+        print("🏃 Raw speed:", speed)
+        
+        // ❌ FILTER 1: för små rörelser (GPS brus)
+        if delta < 2 {
+            print("⚠️ Ignored small movement")
+            lastLocation = newLocation
+            return
+        }
+        
+        // ❌ FILTER 2: för stora hopp (GPS glitch)
+        if delta > 20 {
+            print("⚠️ Ignored big jump")
+            lastLocation = newLocation
+            return
+        }
+        
+        // ❌ FILTER 3: orimlig hastighet
+        if speed < 0.5 || speed > 6 {
+            print("⚠️ Ignored unrealistic speed:", speed)
+            lastLocation = newLocation
+            return
+        }
+        
+        // ✅ VALID DATA
+        totalDistance += delta
+        updateSpeed(speed)
+        
+        print("✅ Distance:", totalDistance)
+        print("✅ Speed:", speed)
+        
+        lastLocation = newLocation
+        pathCoordinates.append(newLocation.coordinate)
     }
-
-    // Exportera samples till RunAnalyzer
-    func exportSamples() -> [SpeedSample] {
-        speedSamples
-    }
-}
-
-// MARK: - CLLocationManagerDelegate
-
-extension LocationService: CLLocationManagerDelegate {
-
-    func locationManager(_ manager: CLLocationManager,
-                         didChangeAuthorization status: CLAuthorizationStatus) {
-        switch status {
-        case .authorizedWhenInUse, .authorizedAlways:
-            break
-        case .denied, .restricted:
-            // Här kan ni lägga logg eller UI-varning senare
-            break
-        case .notDetermined:
-            break
-        @unknown default:
-            break
+    
+    // MARK: - Speed
+    private func updateSpeed(_ speed: Double) {
+        currentSpeed = speed
+        
+        // ❗ skydda maxSpeed från spikes
+        if speed < 6 {
+            maxSpeed = max(maxSpeed, speed)
         }
     }
-
-    func locationManager(_ manager: CLLocationManager,
-                         didUpdateLocations locations: [CLLocation]) {
-        guard let newLocation = locations.last,
-              newLocation.horizontalAccuracy >= 0 else { return }
-
-        DispatchQueue.main.async {
-            if let last = self.currentLocation {
-                let delta = newLocation.distance(from: last)
-                self.totalDistance += delta
-            }
-
-            self.currentLocation = newLocation
-            self.pathCoordinates.append(newLocation.coordinate)
-
-            let speed = max(newLocation.speed, 0)
-            self.currentSpeed = speed
-            self.maxSpeed = max(self.maxSpeed, speed)
-
-            let sample = SpeedSample(timestamp: Date(), speed: speed)
-            self.speedSamples.append(sample)
-            
-            print("LOCATION UPDATE", newLocation.coordinate,
-                  "dist:", self.totalDistance,
-                  "speed:", self.currentSpeed)
-
-        }
-    }
-
-
-    func locationManager(_ manager: CLLocationManager,
-                         didFailWithError error: Error) {
-        print("Location error: \(error.localizedDescription)")
+    
+    // MARK: - Authorization Debug
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        print("Authorization:", manager.authorizationStatus.rawValue)
     }
 }

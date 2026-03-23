@@ -5,6 +5,7 @@
 //  Created by Amiin Sabriya on 2026-01-01.
 //
 
+
 import SwiftUI
 import CoreData
 
@@ -13,6 +14,7 @@ struct RunRhythmApp: App {
     @StateObject private var motionService = MotionService()
     @StateObject private var locationService = LocationService()
     @StateObject private var healthKitService = HealthKitService()
+    
     private let persistence = PersistenceController.shared
 
     var body: some Scene {
@@ -23,11 +25,6 @@ struct RunRhythmApp: App {
                 healthKitService: healthKitService
             )
             .environment(\.managedObjectContext, persistence.container.viewContext)
-            .onAppear {
-                healthKitService.requestAuthorization()
-                locationService.requestAuthorization()
-            }
-
         }
     }
 }

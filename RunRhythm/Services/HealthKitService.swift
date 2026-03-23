@@ -5,20 +5,21 @@
 //  Created by Amiin Sabriya on 2026-01-04.
 //
 
-import Combine
 import Foundation
 import HealthKit
+import Combine
 
 final class HealthKitService: ObservableObject {
 
     private let healthStore = HKHealthStore()
 
-    // Be om åtkomst till HealthKit
+    // MARK: - Authorization
     func requestAuthorization() {
         guard HKHealthStore.isHealthDataAvailable() else { return }
 
         let typesToShare: Set = [
-            HKObjectType.workoutType()
+            HKObjectType.workoutType(),
+            HKObjectType.quantityType(forIdentifier: .distanceWalkingRunning)!
         ]
 
         healthStore.requestAuthorization(toShare: typesToShare, read: []) { success, error in
@@ -30,29 +31,57 @@ final class HealthKitService: ObservableObject {
         }
     }
 
-    // Spara ett löppass som HKWorkout
-    func saveWorkout(from summary: RunSummary,
-                     completion: @escaping (UUID?) -> Void) {
-        let start = Date().addingTimeInterval(-summary.duration)
-        let end = Date()
+    // MARK: - Save Workout (FIXED)
+    func saveWorkout(
+        distance: Double,
+        startDate: Date,
+        endDate: Date
+    ) {
+        let configuration = HKWorkoutConfiguration()
+        configuration.activityType = .running
+        configuration.locationType = .outdoor
 
-        let workout = HKWorkout(
-            activityType: .running,
-            start: start,
-            end: end,
-            workoutEvents: nil,
-            totalEnergyBurned: nil,
-            totalDistance: HKQuantity(unit: .meter(),
-                                      doubleValue: summary.distance),
-            metadata: nil
+        let builder = HKWorkoutBuilder(
+            healthStore: healthStore,
+            configuration: configuration,
+            device: .local()
         )
 
-        healthStore.save(workout) { success, error in
+        builder.beginCollection(withStart: startDate) { success, error in
             if let error = error {
-                print("Save workout error: \(error.localizedDescription)")
+                print("Begin collection error: \(error.localizedDescription)")
+                return
             }
-            DispatchQueue.main.async {
-                completion(success ? workout.uuid : nil)
+
+            // Lägg till distance
+            let distanceQuantity = HKQuantity(unit: .meter(), doubleValue: distance)
+            let distanceSample = HKQuantitySample(
+                type: HKQuantityType.quantityType(forIdentifier: .distanceWalkingRunning)!,
+                quantity: distanceQuantity,
+                start: startDate,
+                end: endDate
+            )
+
+            builder.add([distanceSample]) { success, error in
+                if let error = error {
+                    print("Add sample error: \(error.localizedDescription)")
+                    return
+                }
+
+                builder.endCollection(withEnd: endDate) { success, error in
+                    if let error = error {
+                        print("End collection error: \(error.localizedDescription)")
+                        return
+                    }
+
+                    builder.finishWorkout { workout, error in
+                        if let error = error {
+                            print("Finish workout error: \(error.localizedDescription)")
+                        } else {
+                            print("Workout saved: \(workout?.uuid.uuidString ?? "unknown")")
+                        }
+                    }
+                }
             }
         }
     }
